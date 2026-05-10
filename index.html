@@ -331,9 +331,9 @@ body{
     <span class="nav-brand"><span>JR</span> MOTOS</span>
   </div>
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="showPage('recibo')">Recibo</button>
-    <button class="nav-tab" onclick="showPage('clientes')">Clientes</button>
-    <button class="nav-tab" onclick="showPage('historial')">Historial</button>
+    <button class="nav-tab active" onclick="showPage('recibo', this)">Recibo</button>
+    <button class="nav-tab" onclick="showPage('clientes', this)">Clientes</button>
+    <button class="nav-tab" onclick="showPage('historial', this)">Historial</button>
   </div>
 </nav>
 
@@ -686,11 +686,12 @@ async function dbGetImagen(id)       { const r = await DB.getOne('imagenes', id)
 // ══════════════════════════════════════════════
 //  NAV
 // ══════════════════════════════════════════════
-async function showPage(id) {
+async function showPage(id, el) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
-  event.currentTarget.classList.add('active');
+  const target = el || (typeof event !== 'undefined' && event && event.currentTarget);
+  if(target) target.classList.add('active');
   if(id==='clientes') { await renderClientes(); await updateStats(); }
   if(id==='historial'){ await renderHistorial(); await updateStatsHist(); }
 }
@@ -772,7 +773,7 @@ async function refreshClienteSelect(){
   });
 }
 
-function autoFillCliente(){
+async function autoFillCliente(){
   const id=document.getElementById('f-cliente-sel').value;
   if(!id)return;
   const c=(await dbClientes()).find(x=>x.id===id);
@@ -871,11 +872,12 @@ function closeClienteDetail(e){
     document.getElementById('client-modal-bg').classList.remove('open');
 }
 
-function preloadCliente(id){
+async function preloadCliente(id){
   document.getElementById('f-cliente-sel').value=id;
   autoFillCliente();
-  showPage('recibo');
-  document.querySelectorAll('.nav-tab').forEach((t,i)=>{if(i===0)t.classList.add('active');else t.classList.remove('active');});
+  const tabs = document.querySelectorAll('.nav-tab');
+  tabs.forEach((t,i)=>{ if(i===0) t.classList.add('active'); else t.classList.remove('active'); });
+  await showPage('recibo', tabs[0]);
   toast('✏️ Datos cargados — completa el pago');
 }
 
@@ -1154,11 +1156,9 @@ function abrirWaConTexto(){
 
 async function compartirWhatsApp(){
   if(!currentRecibo){ toast('⚠️ Sin recibo activo'); return; }
-  // Generar y guardar imagen, luego abrir visor con instrucciones
   toast('⏳ Generando imagen...');
   try {
     await capturarImagenBlob();
-    // Mostrar visor con la imagen lista para presionar y guardar
     document.getElementById('img-visor-img').src = ultimaImagenURL;
     document.getElementById('img-visor-bg').style.display = 'block';
     document.getElementById('img-visor-bg').scrollTop = 0;
@@ -1167,5 +1167,32 @@ async function compartirWhatsApp(){
     if(e.name !== 'AbortError') toast('❌ Error: ' + e.message);
   }
 }
+
+// ══════════════════════════════════════════════
+//  INICIO
+// ══════════════════════════════════════════════
+window.addEventListener('load', async () => {
+  try { await DB.open(); } catch(e) { console.error('DB open:', e); }
+  try { await DB.migrarLocalStorage(); } catch(e) { console.error('Migrar:', e); }
+
+  // Fechas por defecto
+  const hoy = new Date();
+  const fechaEl = document.getElementById('f-fecha');
+  const inicioEl = document.getElementById('mc-inicio');
+  if(fechaEl) fechaEl.valueAsDate = hoy;
+  if(inicioEl) inicioEl.valueAsDate = hoy;
+
+  // Activar pestaña Recibo
+  document.querySelectorAll('.page').forEach((p,i) => p.classList.toggle('active', i===0));
+  document.querySelectorAll('.nav-tab').forEach((t,i) => t.classList.toggle('active', i===0));
+
+  // Cargar datos
+  try { await refreshClienteSelect(); } catch(e) { console.error(e); }
+  try { await updateStats(); } catch(e) { console.error(e); }
+  try { await updateStatsHist(); } catch(e) { console.error(e); }
+});
+</script>
+</body>
+</html>
 
 
