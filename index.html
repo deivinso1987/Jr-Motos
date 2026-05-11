@@ -475,6 +475,16 @@ body{
     </div>
   </div>
 
+  <!-- SINCRONIZAR DESDE SHEETS -->
+  <div class="card" style="border-color:#1a3a1a;">
+    <div class="card-title" style="color:#4caf50;">☁️ Sincronizar desde Google Sheets</div>
+    <p style="font-size:.83rem;color:var(--grisT);margin-bottom:14px;line-height:1.6;">
+      Descarga todos los recibos de tu hoja de cálculo directo a la app. Los datos existentes se fusionan — no se borran.
+    </p>
+    <button class="btn btn-green" onclick="syncDesdeSheets()" id="btn-sync-sheets">⬇️ SINCRONIZAR DESDE SHEETS</button>
+    <div id="sync-status"></div>
+  </div>
+
   <!-- EXPORTAR -->
   <div class="card">
     <div class="card-title">📤 Exportar datos</div>
@@ -1411,6 +1421,61 @@ async function compartirWhatsApp(){
     toast('✅ Imagen lista — presiona la imagen para guardarla', 3500);
   } catch(e) {
     if(e.name !== 'AbortError') toast('❌ Error: ' + e.message);
+  }
+}
+
+async function syncDesdeSheets(){
+  const btn = document.getElementById('btn-sync-sheets');
+  const status = document.getElementById('sync-status');
+  btn.textContent = '⏳ Sincronizando...';
+  btn.disabled = true;
+  status.innerHTML = '';
+
+  try {
+    const resp = await fetch(SHEETS_URL, { method: 'GET' });
+    const data = await resp.json();
+
+    if(!data.ok || !data.recibos) throw new Error(data.error || 'Respuesta inválida del servidor');
+
+    const existR   = await dbRecibos();
+    const existIds = new Set(existR.map(r => r.id));
+    let nuevos = 0, actualizados = 0;
+
+    for(const r of data.recibos){
+      // Completar campos que la app necesita
+      if(!r.msgProx && r.fecha){
+        try {
+          const proxSab = proxSabado(r.fecha);
+          const semText = r.semana ? `Semana N° ${r.semana}` : 'N/A';
+          r.msgProx = `Hemos recibido su pago de $${r.monto} correspondiente a la ${semText.toLowerCase()} del ${fmtFecha(r.fecha)}. Su próximo pago es el ${proxSab}. ¡Gracias por su puntualidad! 🏍️`;
+        } catch(e){ r.msgProx = ''; }
+      }
+      if(existIds.has(r.id)){ actualizados++; } else { nuevos++; }
+      await dbSaveRecibo(r);
+    }
+
+    await refreshClienteSelect();
+    await updateStats();
+    await updateStatsHist();
+    await actualizarStatsDatos();
+
+    status.innerHTML = `
+      <div style="background:#0a2e1a;border:1px solid #1a4a2a;border-radius:8px;padding:14px;margin-top:12px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:.1em;color:#4caf50;margin-bottom:8px;">✅ SINCRONIZACIÓN EXITOSA</div>
+        <div style="font-size:.8rem;color:var(--grisT);line-height:1.8;">
+          Recibos importados: <strong style="color:var(--blanco);">${nuevos}</strong><br>
+          Recibos actualizados: <strong style="color:var(--blanco);">${actualizados}</strong><br>
+          Total en la app: <strong style="color:var(--blanco);">${data.recibos.length}</strong>
+        </div>
+      </div>`;
+    toast(`✅ ${nuevos} recibos nuevos, ${actualizados} actualizados`);
+
+  } catch(e) {
+    status.innerHTML = `<div style="background:#2a0a0a;border:1px solid #3a1010;border-radius:8px;padding:12px;margin-top:12px;font-size:.82rem;color:var(--rojo);">⚠️ Error: ${e.message}</div>`;
+    toast('⚠️ Error al sincronizar');
+  } finally {
+    btn.textContent = '⬇️ SINCRONIZAR DESDE SHEETS';
+    btn.disabled = false;
   }
 }
 
