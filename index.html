@@ -339,6 +339,7 @@ body{
     <button class="nav-tab active" onclick="showPage('recibo', this)">Recibo</button>
     <button class="nav-tab" onclick="showPage('clientes', this)">Clientes</button>
     <button class="nav-tab" onclick="showPage('historial', this)">Historial</button>
+    <button class="nav-tab" onclick="showPage('datos', this)">💾 Datos</button>
   </div>
 </nav>
 
@@ -457,6 +458,55 @@ body{
   </div>
 
   <div id="lista-historial"></div>
+</div>
+
+<!-- ════════════════ PAGE: DATOS ════════════════ -->
+<div class="page" id="page-datos">
+
+  <!-- Resumen -->
+  <div class="stats" id="stats-datos">
+    <div class="stat-card">
+      <div class="stat-label">Clientes guardados</div>
+      <div class="stat-value" id="dat-clientes">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Recibos guardados</div>
+      <div class="stat-value green" id="dat-recibos">0</div>
+    </div>
+  </div>
+
+  <!-- EXPORTAR -->
+  <div class="card">
+    <div class="card-title">📤 Exportar datos</div>
+    <p style="font-size:.83rem;color:var(--grisT);margin-bottom:14px;line-height:1.6;">
+      Descarga un archivo <strong style="color:var(--blanco);">.json</strong> con todos tus clientes y recibos. Guárdalo en Google Drive, iCloud o WhatsApp para tenerlo seguro.
+    </p>
+    <button class="btn btn-red" onclick="exportarDatos()">📤 DESCARGAR RESPALDO</button>
+  </div>
+
+  <!-- IMPORTAR -->
+  <div class="card">
+    <div class="card-title">📥 Importar datos</div>
+    <p style="font-size:.83rem;color:var(--grisT);margin-bottom:14px;line-height:1.6;">
+      Restaura un respaldo anterior. Los datos existentes <strong style="color:var(--amarillo);">se fusionan</strong> — no se borran los que ya tienes.
+    </p>
+    <label style="display:block;background:var(--negro);border:2px dashed #2e2e2e;border-radius:10px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px;transition:border-color .2s;" id="drop-zone">
+      <div style="font-size:2rem;margin-bottom:6px;">📂</div>
+      <div style="font-size:.82rem;color:var(--grisT);">Toca para seleccionar el archivo <strong style="color:var(--blanco);">.json</strong></div>
+      <input type="file" id="file-import" accept=".json" style="display:none" onchange="importarDatos(event)">
+    </label>
+    <div id="import-status"></div>
+  </div>
+
+  <!-- PELIGRO -->
+  <div class="card" style="border-color:#2a0a0a;">
+    <div class="card-title" style="color:#6b2020;">⚠️ Zona de peligro</div>
+    <p style="font-size:.83rem;color:var(--grisT);margin-bottom:14px;line-height:1.6;">
+      Borra <strong style="color:var(--rojo);">todos</strong> los datos de la app. Esta acción no se puede deshacer. Exporta primero.
+    </p>
+    <button class="btn btn-dark" style="background:#1a0505;color:var(--rojo);border:1px solid #2a0a0a;" onclick="borrarTodosDatos()">🗑 BORRAR TODOS LOS DATOS</button>
+  </div>
+
 </div>
 
 <!-- ════════════════ MODAL: NUEVO CLIENTE ════════════════ -->
@@ -805,6 +855,7 @@ async function showPage(id, el) {
   if(target) target.classList.add('active');
   if(id==='clientes') { await renderClientes(); await updateStats(); }
   if(id==='historial'){ await renderHistorial(); await updateStatsHist(); }
+  if(id==='datos')    { await actualizarStatsDatos(); }
 }
 
 // ══════════════════════════════════════════════
@@ -1364,6 +1415,118 @@ async function compartirWhatsApp(){
 }
 
 // ══════════════════════════════════════════════
+//  EXPORTAR / IMPORTAR DATOS
+// ══════════════════════════════════════════════
+async function exportarDatos(){
+  try {
+    const clientes = await dbClientes();
+    const recibos  = await dbRecibos();
+    const payload  = {
+      version: 1,
+      exportado: new Date().toISOString(),
+      clientes,
+      recibos
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const fecha = new Date().toISOString().slice(0,10);
+    a.href     = url;
+    a.download = `jrmotos-respaldo-${fecha}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast(`✅ Respaldo descargado — ${clientes.length} clientes, ${recibos.length} recibos`);
+  } catch(e) {
+    toast('⚠️ Error al exportar: ' + e.message);
+  }
+}
+
+async function importarDatos(event){
+  const file = event.target.files[0];
+  if(!file){ return; }
+  const status = document.getElementById('import-status');
+  status.innerHTML = '<p style="font-size:.82rem;color:var(--grisT);margin-top:8px;">⏳ Importando...</p>';
+  try {
+    const text    = await file.text();
+    const payload = JSON.parse(text);
+    if(!payload.clientes || !payload.recibos) throw new Error('Archivo inválido o dañado');
+
+    let cNew=0, rNew=0, cUp=0, rUp=0;
+
+    // Clientes
+    const existC = await dbClientes();
+    const existCIds = new Set(existC.map(c=>c.id));
+    for(const c of payload.clientes){
+      if(existCIds.has(c.id)){ await dbSaveCliente(c); cUp++; }
+      else { await dbSaveCliente(c); cNew++; }
+    }
+
+    // Recibos
+    const existR = await dbRecibos();
+    const existRIds = new Set(existR.map(r=>r.id));
+    for(const r of payload.recibos){
+      if(existRIds.has(r.id)){ await dbSaveRecibo(r); rUp++; }
+      else { await dbSaveRecibo(r); rNew++; }
+    }
+
+    await refreshClienteSelect();
+    await updateStats();
+    await updateStatsHist();
+    await actualizarStatsDatos();
+
+    status.innerHTML = `
+      <div style="background:#0a2e1a;border:1px solid #1a4a2a;border-radius:8px;padding:14px;margin-top:8px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;letter-spacing:.1em;color:#4caf50;margin-bottom:8px;">✅ IMPORTACIÓN EXITOSA</div>
+        <div style="font-size:.8rem;color:var(--grisT);line-height:1.8;">
+          Clientes nuevos: <strong style="color:var(--blanco);">${cNew}</strong><br>
+          Clientes actualizados: <strong style="color:var(--blanco);">${cUp}</strong><br>
+          Recibos nuevos: <strong style="color:var(--blanco);">${rNew}</strong><br>
+          Recibos actualizados: <strong style="color:var(--blanco);">${rUp}</strong>
+        </div>
+      </div>`;
+    event.target.value = '';
+    toast('✅ Datos importados correctamente');
+  } catch(e) {
+    status.innerHTML = `<div style="background:#2a0a0a;border:1px solid #3a1010;border-radius:8px;padding:12px;margin-top:8px;font-size:.82rem;color:var(--rojo);">⚠️ Error: ${e.message}</div>`;
+    toast('⚠️ Error al importar');
+  }
+}
+
+async function borrarTodosDatos(){
+  const confirm1 = confirm('⚠️ ¿Seguro que quieres borrar TODOS los datos?\n\nEsto eliminará todos los clientes y recibos.\n\nEsta acción NO se puede deshacer.');
+  if(!confirm1) return;
+  const confirm2 = confirm('🚨 ÚLTIMA ADVERTENCIA\n\n¿Exportaste un respaldo primero?\n\nToca "Cancelar" para ir a exportar primero,\no "Aceptar" para borrar de todas formas.');
+  if(!confirm2) return;
+  try {
+    const clientes = await dbClientes();
+    const recibos  = await dbRecibos();
+    for(const c of clientes) await DB.del('clientes', c.id);
+    for(const r of recibos)  { await DB.del('recibos', r.id); await DB.del('imagenes', r.id); }
+    await refreshClienteSelect();
+    await updateStats();
+    await updateStatsHist();
+    await actualizarStatsDatos();
+    document.getElementById('import-status').innerHTML = '';
+    toast('🗑 Todos los datos eliminados');
+  } catch(e) {
+    toast('⚠️ Error al borrar: ' + e.message);
+  }
+}
+
+async function actualizarStatsDatos(){
+  try {
+    const c = await dbClientes();
+    const r = await dbRecibos();
+    const ec = document.getElementById('dat-clientes');
+    const er = document.getElementById('dat-recibos');
+    if(ec) ec.textContent = c.length;
+    if(er) er.textContent = r.length;
+  } catch(e){}
+}
+
+// ══════════════════════════════════════════════
 //  INICIO
 // ══════════════════════════════════════════════
 window.addEventListener('load', async () => {
@@ -1385,6 +1548,7 @@ window.addEventListener('load', async () => {
   try { await refreshClienteSelect(); } catch(e) { console.error(e); }
   try { await updateStats(); } catch(e) { console.error(e); }
   try { await updateStatsHist(); } catch(e) { console.error(e); }
+  try { await actualizarStatsDatos(); } catch(e) {}
 });
 </script>
 </body>
