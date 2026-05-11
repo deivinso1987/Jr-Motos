@@ -294,6 +294,11 @@ body{
 }
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
+/* ── MODAL EDITAR RECIBO ── */
+#modal-editar-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:700;align-items:flex-end;justify-content:center;}
+#modal-editar-bg.open{display:flex;}
+#modal-editar-bg .modal{max-height:92vh;overflow-y:auto;}
+
 /* scrollbar */
 ::-webkit-scrollbar{width:4px;}
 ::-webkit-scrollbar-track{background:transparent;}
@@ -520,6 +525,11 @@ body{
       <button class="btn btn-blue" onclick="verImagenRecibo()">🖼 VER IMAGEN</button>
       <button class="btn btn-dark" onclick="closeReciboModal()">✕ CERRAR</button>
     </div>
+    <!-- Editar / Eliminar -->
+    <div style="max-width:480px;margin:10px auto 0;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <button class="btn btn-dark" style="background:#1a2a3a;color:#7ec8e3;border:1px solid #1e3a50;" onclick="abrirEditarRecibo()">✏️ EDITAR</button>
+      <button class="btn btn-dark" style="background:#2a0a0a;color:var(--rojo);border:1px solid #3a1010;" onclick="confirmarEliminarRecibo()">🗑 ELIMINAR</button>
+    </div>
     <div id="recibo-render"></div>
   </div>
 </div>
@@ -585,6 +595,73 @@ body{
     </button>
     <div style="text-align:center;font-size:.7rem;color:#444;margin-top:6px;">
       Guarda la imagen primero (paso 1 y 2), luego adjúntala en WhatsApp
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ MODAL: EDITAR RECIBO ════════════════ -->
+<div class="modal-bg" id="modal-editar-bg" onclick="closeEditarModal(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">
+      ✏️ Editar Recibo
+      <button class="modal-close" onclick="closeEditarModal()">✕</button>
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Fecha del Pago</label>
+        <input type="date" id="ed-fecha">
+      </div>
+      <div class="fg">
+        <label>Semana N°</label>
+        <input type="number" id="ed-semana" placeholder="Ej: 5" min="1">
+      </div>
+    </div>
+    <div class="fg">
+      <label>Nombre Completo *</label>
+      <input type="text" id="ed-nombre" placeholder="Nombre completo del cliente">
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Cédula / Documento</label>
+        <input type="text" id="ed-cedula" placeholder="Número">
+      </div>
+      <div class="fg">
+        <label>Placa de la Moto *</label>
+        <input type="text" id="ed-placa" placeholder="ABC-123" style="text-transform:uppercase">
+      </div>
+    </div>
+    <div class="fg">
+      <label>Modelo / Referencia</label>
+      <input type="text" id="ed-modelo" placeholder="Ej: AKT NKD 125">
+    </div>
+    <div class="row2">
+      <div class="fg">
+        <label>Valor Pagado ($) *</label>
+        <input type="text" id="ed-monto" placeholder="Ej: 250.000">
+      </div>
+      <div class="fg">
+        <label>Método de Pago</label>
+        <select id="ed-metodo">
+          <option>Efectivo</option>
+          <option>Nequi</option>
+          <option>Daviplata</option>
+          <option>Transferencia</option>
+          <option>Cheque</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg">
+      <label>WhatsApp del Cliente</label>
+      <input type="tel" id="ed-tel" placeholder="3001234567">
+    </div>
+    <div class="fg">
+      <label>Observaciones (opcional)</label>
+      <textarea id="ed-obs" placeholder="Ej: Pago con anticipación..."></textarea>
+    </div>
+    <div class="gap-row" style="margin-top:4px;">
+      <button class="btn btn-dark" onclick="closeEditarModal()">CANCELAR</button>
+      <button class="btn btn-red" onclick="guardarEdicionRecibo()">💾 GUARDAR</button>
     </div>
   </div>
 </div>
@@ -680,8 +757,42 @@ async function dbRecibos()           { return await DB.getAll('recibos'); }
 async function dbSaveCliente(c)      { return await DB.put('clientes', c); }
 async function dbSaveRecibo(r)       { return await DB.put('recibos', r); }
 async function dbDelCliente(id)      { return await DB.del('clientes', id); }
+async function dbDelRecibo(id)       { return await DB.del('recibos', id); }
 async function dbSaveImagen(id, url) { return await DB.put('imagenes', { id, url }); }
 async function dbGetImagen(id)       { const r = await DB.getOne('imagenes', id); return r ? r.url : null; }
+
+// ══════════════════════════════════════════════
+//  GOOGLE SHEETS SYNC
+// ══════════════════════════════════════════════
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyo8VPP-HtJXVUvfhPXqItYvlVTA1VzoDWr-J3qj5bGs-EPu0apPst_dr_szKMnwOKFYw/exec';
+
+async function syncToSheets(r, accion='NUEVO'){
+  try {
+    await fetch(SHEETS_URL, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        accion,
+        num     : r.num    || '',
+        fecha   : r.fecha  || '',
+        nombre  : r.nombre || '',
+        cedula  : r.cedula || '',
+        placa   : r.placa  || '',
+        modelo  : r.modelo || '',
+        monto   : r.monto  || '',
+        metodo  : r.metodo || '',
+        semana  : r.semana || '',
+        obs     : r.obs    || '',
+        id      : r.id     || '',
+      })
+    });
+    return true;
+  } catch(e){
+    console.warn('Sheets sync error:', e);
+    return false;
+  }
+}
 
 // ══════════════════════════════════════════════
 //  NAV
@@ -939,6 +1050,89 @@ async function updateStatsHist(){
   document.getElementById('st-total-monto').textContent='$'+total.toLocaleString('es-CO');
 }
 
+// ══════════════════════════════════════════════
+//  EDITAR / ELIMINAR RECIBO
+// ══════════════════════════════════════════════
+function abrirEditarRecibo(){
+  if(!currentRecibo){ toast('⚠️ Sin recibo activo'); return; }
+  const r = currentRecibo;
+  document.getElementById('ed-fecha').value   = r.fecha   || '';
+  document.getElementById('ed-semana').value  = r.semana  || '';
+  document.getElementById('ed-nombre').value  = r.nombre  || '';
+  document.getElementById('ed-cedula').value  = r.cedula  || '';
+  document.getElementById('ed-placa').value   = r.placa   || '';
+  document.getElementById('ed-modelo').value  = r.modelo  || '';
+  document.getElementById('ed-monto').value   = r.monto   || '';
+  document.getElementById('ed-tel').value     = r.tel     || '';
+  document.getElementById('ed-obs').value     = r.obs     || '';
+  const sel = document.getElementById('ed-metodo');
+  for(let op of sel.options){ if(op.value===r.metodo){ op.selected=true; break; } }
+  document.getElementById('modal-editar-bg').classList.add('open');
+}
+
+function closeEditarModal(e){
+  if(!e || e.target===document.getElementById('modal-editar-bg'))
+    document.getElementById('modal-editar-bg').classList.remove('open');
+}
+
+async function guardarEdicionRecibo(){
+  if(!currentRecibo){ toast('⚠️ Sin recibo activo'); return; }
+  const fecha  = document.getElementById('ed-fecha').value;
+  const nombre = document.getElementById('ed-nombre').value.trim();
+  const placa  = document.getElementById('ed-placa').value.trim().toUpperCase();
+  const monto  = document.getElementById('ed-monto').value.trim();
+  if(!fecha||!nombre||!placa||!monto){ toast('⚠️ Completa los campos obligatorios'); return; }
+
+  const semana = document.getElementById('ed-semana').value;
+  const proxSab = proxSabado(fecha);
+  const semText = semana ? `Semana N° ${semana}` : 'N/A';
+  const msgProx = `Hemos recibido su pago de $${monto} correspondiente a la ${semText.toLowerCase()} del ${fmtFecha(fecha)}. Su próximo pago es el ${proxSab}. ¡Gracias por su puntualidad! 🏍️`;
+
+  const updated = {
+    ...currentRecibo,
+    fecha, semana,
+    nombre,
+    cedula : document.getElementById('ed-cedula').value.trim(),
+    placa,
+    modelo : document.getElementById('ed-modelo').value.trim(),
+    monto,
+    metodo : document.getElementById('ed-metodo').value,
+    tel    : document.getElementById('ed-tel').value.trim().replace(/\D/g,''),
+    obs    : document.getElementById('ed-obs').value.trim(),
+    msgProx,
+    editado: new Date().toISOString(),
+  };
+
+  await dbSaveRecibo(updated);
+  currentRecibo = updated;
+  ultimaImagenURL = null; // Invalidar imagen cacheada
+  await DB.del('imagenes', updated.id); // Borrar imagen vieja de IndexedDB
+  syncToSheets(updated, 'EDITADO'); // ← notificar edición a Sheets
+  closeEditarModal();
+  renderReciboHTML(updated);
+  await renderHistorial();
+  await updateStatsHist();
+  toast('✅ Recibo actualizado');
+}
+
+async function confirmarEliminarRecibo(){
+  if(!currentRecibo){ toast('⚠️ Sin recibo activo'); return; }
+  const nombre = currentRecibo.nombre || 'este recibo';
+  if(!confirm(`¿Eliminar el recibo de ${nombre}?\nEsta acción no se puede deshacer.`)) return;
+  const reciboAEliminar = currentRecibo;
+  await dbDelRecibo(currentRecibo.id);
+  await DB.del('imagenes', currentRecibo.id);
+  syncToSheets(reciboAEliminar, 'ELIMINADO'); // ← notificar eliminación a Sheets
+  currentRecibo = null;
+  ultimaImagenURL = null;
+  closeReciboModal();
+  await renderHistorial();
+  await updateStatsHist();
+  await renderClientes();
+  await updateStats();
+  toast('🗑 Recibo eliminado');
+}
+
 async function verReciboById(id){
   const r=(await dbRecibos()).find(x=>x.id===id);
   if(!r)return;
@@ -984,6 +1178,7 @@ async function generarRecibo(){
 
   await dbSaveRecibo(r);
   currentRecibo=r;
+  syncToSheets(r, 'NUEVO'); // ← enviar a Google Sheets (sin bloquear UI)
 
   renderReciboHTML(r);
   document.getElementById('recibo-modal-bg').classList.add('open');
